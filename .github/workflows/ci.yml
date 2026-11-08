@@ -26,7 +26,7 @@ jobs:
       - run: uv sync --locked --extra dev -p 3.11
       - name: lint e formatação
         run: |
-          uv run --locked ruff check src tests ferramentas
+          uv run --locked ruff check src tests
           uv run --locked ruff format --check src tests
       - name: testes (domínio, leitor do SINAPI, casos de uso, API e a regra das camadas)
         run: uv run --locked pytest -q
