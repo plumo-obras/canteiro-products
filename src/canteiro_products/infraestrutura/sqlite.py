@@ -54,8 +54,18 @@ class RepositorioSqlite:
         with self._trava:
             c = self._con()
             with c:  # uma transação: quem lê vê o mês antigo inteiro ou o novo inteiro
-                for tabela in ("itens", "precos", "analitico", "busca"):
-                    c.execute(f"DELETE FROM {tabela} WHERE base = ? AND mes = ?", (b, m))  # noqa: S608
+                if lote.ufs is None:
+                    for tabela in ("itens", "precos", "analitico", "busca"):
+                        c.execute(f"DELETE FROM {tabela} WHERE base = ? AND mes = ?", (b, m))  # noqa: S608
+                else:
+                    # base por UF: só os preços destas UFs saem; os itens se atualizam sem apagar os das outras
+                    marcas = ",".join("?" * len(lote.ufs))
+                    c.execute(f"DELETE FROM precos WHERE base = ? AND mes = ? AND uf IN ({marcas})", (b, m, *lote.ufs))  # noqa: S608
+                    chaves = [(b, m, i.tipo.value, i.codigo) for i in lote.itens]
+                    c.executemany("DELETE FROM itens WHERE base = ? AND mes = ? AND tipo = ? AND codigo = ?", chaves)
+                    c.executemany("DELETE FROM busca WHERE base = ? AND mes = ? AND tipo = ? AND codigo = ?", chaves)
+                    c.executemany("DELETE FROM analitico WHERE base = ? AND mes = ? AND composicao = ?",
+                                  [(b, m, comp) for comp in lote.analiticos])  # fmt: skip
                 c.executemany(
                     "INSERT INTO itens VALUES (?, ?, ?, ?, ?, ?, ?)",
                     [(b, m, i.tipo.value, i.codigo, i.descricao, i.unidade, i.grupo) for i in lote.itens],

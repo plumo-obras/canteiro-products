@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from canteiro_products import VERSAO_SERVICO
 from canteiro_products.aplicacao.casos_de_uso import Catalogo
 from canteiro_products.dominio.erros import BaseIndisponivel, ErroDeProdutos, NaoEncontrado, PedidoInvalido
+from canteiro_products.infraestrutura.bases.sicro import FonteSicro
 from canteiro_products.infraestrutura.bases.sinapi import FonteSinapi
 from canteiro_products.infraestrutura.sqlite import RepositorioSqlite
 
@@ -31,22 +32,20 @@ UM_DIA = 24 * 3600
 
 
 def montar_catalogo(cfg: Configuracao) -> Catalogo:
-    return Catalogo(RepositorioSqlite(cfg.dados / "produtos.sqlite"), {"sinapi": FonteSinapi()})
+    fontes = {"sinapi": FonteSinapi(), "sicro": FonteSicro(cfg.sicro_ufs or None)}
+    return Catalogo(RepositorioSqlite(cfg.dados / "produtos.sqlite"), fontes)
 
 
 def _atualizar_sem_derrubar(catalogo: Catalogo) -> None:
-    """Busca o mês mais novo de cada base que ainda não está aqui. Falhar (sem internet, órgão limitando) é só log."""
-    for b in catalogo.bases():
+    """Importa o mês mais novo de cada base que ainda não está aqui. Falhar (sem internet, órgão limitando) é só log."""
+    for sigla in sorted(catalogo.fontes):
         try:
-            mes, arquivo = catalogo.fontes[b["base"]].baixar(None)
-            if mes in b["meses"]:
-                continue
-            print(f"{b['base']}: importando {mes}…", flush=True)
-            r = catalogo.importar(b["base"], arquivo=arquivo)
-            n = f"{r['insumos']} insumos, {r['composicoes']} composições"
-            print(f"{b['base']}: {r['mes']} importado ({n})", flush=True)
+            r = catalogo.atualizar(sigla)
+            if r:
+                n = f"{r['insumos']} insumos, {r['composicoes']} composições"
+                print(f"{sigla}: {r['mes']} importado ({n})", flush=True)
         except Exception as e:  # noqa: BLE001
-            print(f"{b['base']}: não atualizado agora: {e}", flush=True)
+            print(f"{sigla}: não atualizado agora: {e}", flush=True)
 
 
 def criar_app(cfg: Configuracao | None = None, catalogo: Catalogo | None = None) -> FastAPI:

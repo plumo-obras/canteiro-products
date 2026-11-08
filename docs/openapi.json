@@ -3,7 +3,7 @@
   "info": {
     "title": "Produtos e preços da construção",
     "description": "As bases oficiais de custos da construção (SINAPI...) para o Plumo: busca, item e composição.",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/v1/saude": {

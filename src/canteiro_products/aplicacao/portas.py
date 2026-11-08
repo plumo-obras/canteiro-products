@@ -3,6 +3,7 @@ trocam por versões em memória."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Protocol
 
 from canteiro_products.dominio.busca import Consulta
@@ -40,12 +41,16 @@ class Repositorio(Protocol):
 
 
 class FonteDeBase(Protocol):
-    """Uma base oficial: de onde se baixa o arquivo do mês e como se lê."""
+    """Uma base oficial: o mês mais novo publicado, os arquivos de um mês e como se lê cada um."""
 
     base: Base
 
-    def baixar(self, mes: str | None) -> tuple[str, bytes]:
-        """O arquivo do mês (ou do mais novo publicado) e o mês que ele traz. Levanta BaseIndisponivel."""
+    def ultimo_mes(self) -> str:
+        """O mês mais novo publicado pelo órgão (pergunta barata, sem baixar a base). Levanta BaseIndisponivel."""
+        ...
+
+    def baixar(self, mes: str) -> Iterator[bytes]:
+        """Os arquivos do mês: um (base nacional) ou um por UF. Levanta BaseIndisponivel."""
         ...
 
     def ler(self, arquivo: bytes) -> LoteDeReferencia: ...

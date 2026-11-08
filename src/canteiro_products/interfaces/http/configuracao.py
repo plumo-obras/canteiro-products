@@ -23,6 +23,7 @@ class Configuracao:
     chaves: frozenset[str]
     cors: list[str]
     atualizar: bool = True
+    sicro_ufs: tuple[str, ...] = ()
 
     @classmethod
     def do_ambiente(cls, env: dict[str, str] | None = None) -> Configuracao:
@@ -32,4 +33,5 @@ class Configuracao:
             chaves=frozenset(_lista(e.get("PRODUTOS_API_KEYS", ""))),
             cors=_lista(e.get("PRODUTOS_CORS", "*")),
             atualizar=e.get("PRODUTOS_ATUALIZAR", "1") != "0",
+            sicro_ufs=tuple(u.upper() for u in _lista(e.get("PRODUTOS_SICRO_UFS", ""))),
         )

@@ -10,9 +10,8 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from collections.abc import Iterator
 from datetime import date
-
-import httpx
 
 from canteiro_products.dominio.erros import BaseIndisponivel
 from canteiro_products.dominio.modelos import (
@@ -26,6 +25,8 @@ from canteiro_products.dominio.modelos import (
     Tipo,
 )
 
+from . import _http
+
 BASE = Base(
     sigla="sinapi",
     nome="SINAPI — Sistema Nacional de Pesquisa de Custos e Índices da Construção Civil",
@@ -34,8 +35,6 @@ BASE = Base(
     fonte_url="https://www.caixa.gov.br/poder-publico/modernizacao-gestao/sinapi",
 )
 URL_MENSAL = "https://www.caixa.gov.br/Downloads/sinapi-relatorios-mensais/SINAPI-{ano}-{mes:02d}-formato-xlsx.zip"
-# o portal responde em loop de redirecionamento para quem não parece navegador
-CABECALHOS = {"User-Agent": "Mozilla/5.0 (canteiro-products; base SINAPI)"}
 INSUMOS = {"ISD": False, "ICD": True}  # aba -> desonerado
 COMPOSICOES = {"CSD": False, "CCD": True}
 _CODIGO_NA_FORMULA = re.compile(r",\s*(\d+)\s*\)\s*$")  # =HYPERLINK(..., 104658)
@@ -49,22 +48,28 @@ class FonteSinapi:
 
     # ------------------------------------------------------------------ download
 
-    def baixar(self, mes: str | None) -> tuple[str, bytes]:
-        candidatos = [tuple(int(x) for x in mes.split("-"))] if mes else _meses_anteriores(self.hoje or date.today())
+    def ultimo_mes(self) -> str:
         erros = []
-        with httpx.Client(timeout=self.timeout, follow_redirects=True, headers=CABECALHOS) as c:
-            for a, m in candidatos:
-                r = c.get(URL_MENSAL.format(ano=a, mes=m))
-                if r.status_code == 200 and r.content[:2] == b"PK":
-                    return f"{a}-{m:02d}", r.content
-                erros.append(f"{a}-{m:02d}: {r.status_code}")
-        dica = (
-            " A Caixa limita downloads repetidos (429): tente mais tarde ou baixe o ZIP no navegador e importe"
-            " o arquivo."
-            if any(e.endswith(": 429") for e in erros)
-            else ""
-        )
-        raise BaseIndisponivel("SINAPI não encontrado na Caixa (" + ", ".join(erros) + ")." + dica)
+        for a, m in _meses_anteriores(self.hoje or date.today()):
+            st = _http.existe(URL_MENSAL.format(ano=a, mes=m), b"PK")
+            if st == 429:
+                raise BaseIndisponivel(
+                    "A Caixa limitou os downloads (429): tente mais tarde ou importe o ZIP baixado no navegador."
+                )
+            if st:
+                return f"{a}-{m:02d}"
+            erros.append(f"{a}-{m:02d}")
+        raise BaseIndisponivel("Nenhum SINAPI publicado na Caixa em " + ", ".join(erros) + ".")
+
+    def baixar(self, mes: str) -> Iterator[bytes]:
+        a, m = (int(x) for x in mes.split("-"))
+        try:
+            arquivo = _http.baixar(URL_MENSAL.format(ano=a, mes=m), b"PK", self.timeout)
+        except _http.httpx.HTTPError:
+            arquivo = None
+        if arquivo is None:
+            raise BaseIndisponivel(f"O SINAPI {mes} não foi baixado da Caixa (não publicado ou download limitado).")
+        yield arquivo
 
     # ------------------------------------------------------------------ leitura
 

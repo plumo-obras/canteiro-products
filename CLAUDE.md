@@ -1,6 +1,6 @@
 # canteiro-products
 
-Microsserviço do Plumo com os produtos e preços da construção: as bases oficiais de custos (SINAPI hoje), importadas do
+Microsserviço do Plumo com os produtos e preços da construção: as bases oficiais de custos (SINAPI e SICRO hoje), importadas do
 órgão que publica, com busca, item e composição analítica. Leia o `README.md` antes de codar.
 
 ## Regras da casa

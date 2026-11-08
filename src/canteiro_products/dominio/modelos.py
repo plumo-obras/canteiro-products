@@ -83,3 +83,6 @@ class LoteDeReferencia:
     itens: list[Item] = field(default_factory=list)
     precos: dict[tuple[Tipo, str], list[Preco]] = field(default_factory=dict)
     analiticos: dict[str, list[ItemDaComposicao]] = field(default_factory=dict)  # código da composição -> itens
+    # bases publicadas por UF (o SICRO é um arquivo por estado): o lote só substitui os preços destas UFs, e os itens
+    # entram ou se atualizam sem apagar os das outras. None = a referência inteira (SINAPI, nacional).
+    ufs: tuple[str, ...] | None = None

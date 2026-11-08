@@ -8,4 +8,4 @@ Camadas (de dentro para fora; cada uma só conhece as de dentro):
     interfaces/       a API HTTP (FastAPI) e a linha de comando
 """
 
-VERSAO_SERVICO = "0.1.0"
+VERSAO_SERVICO = "0.2.0"

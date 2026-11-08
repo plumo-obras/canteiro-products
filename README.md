@@ -4,8 +4,15 @@ Microsserviço do Plumo com os **produtos e preços da construção**: as bases 
 publica, com busca por termos, o item com o preço em cada UF e o histórico mês a mês, e a **composição analítica** (os
 insumos e serviços de cada composição, com coeficiente e custo, fechando no centavo com a base).
 
-Hoje: **SINAPI** (Caixa + IBGE), nacional, 27 UF, com e sem desoneração. Próximas fontes entram como um leitor novo em
-`infraestrutura/bases/` (SICRO/DNIT, ORSE/CEHOP-SE, GOINFRA/AGETOP...), sempre do arquivo oficial do órgão.
+| Base | Órgão | O que entra | Publicação |
+|---|---|---|---|
+| **SINAPI** | Caixa + IBGE | insumos, composições e o analítico; 27 UF; com e sem desoneração | mensal, um ZIP nacional |
+| **SICRO** | DNIT | materiais, mão de obra e equipamentos (custo produtivo/h), composições (custo unitário); com e sem desoneração na mão de obra e no equipamento | trimestral, um .7z por UF |
+
+A composição analítica do SICRO (produção da equipe, FIC, momento de transporte) ainda não entra: o custo dela não é
+coeficiente × preço, e a regra da casa é fechar com o publicado. Próximas fontes entram como um leitor novo em
+`infraestrutura/bases/`, sempre do arquivo oficial do órgão. O **ORSE** (CEHOP-SE) está pendente: o servidor de arquivos
+dele não respondeu e o formato `.ORSE` é o do programa da CEHOP, sem documentação pública.
 
 Quem usa: o [canteiro-cad](https://github.com/plumo-obras/canteiro-cad) (o insumo de cada material do projeto), a
 [canteiro-api](https://github.com/plumo-obras/canteiro-api) e o agente (o que existe no mercado e quanto custa).
@@ -22,13 +29,18 @@ arquivo baixado no navegador:
 
 ```bash
 docker compose exec produtos importar-base sinapi --arquivo /caminho/SINAPI-2026-09-formato-xlsx.zip
+docker compose exec produtos importar-base sicro                      # o trimestre mais novo, das UFs configuradas
+docker compose exec produtos importar-base sicro --arquivo /caminho/mg-07-2026.7z
 ```
+
+O download retoma de onde parou quando o portal derruba a conexão no meio (acontece com os ~30 MB do SICRO).
 
 | Variável | Padrão | |
 |---|---|---|
 | `PRODUTOS_API_KEYS` | vazio (sem autenticação) | chaves aceitas em `X-API-Key`, separadas por vírgula |
 | `PRODUTOS_DADOS` | `/dados` na imagem | onde fica o banco (SQLite, ~110 MB por mês do SINAPI) |
 | `PRODUTOS_ATUALIZAR` | 1 | busca o mês novo de cada base ao subir e uma vez por dia |
+| `PRODUTOS_SICRO_UFS` | as 27 | UFs do SICRO a baixar (cada uma ~30 MB por trimestre): `SP,MG,RJ` |
 | `PRODUTOS_CORS` | `*` | origens liberadas |
 
 ## API
@@ -48,7 +60,7 @@ a soma fecha com o custo publicado.
 src/canteiro_products/
   dominio/          base, referência mensal, insumo, composição, preço; a busca por termos (Python puro)
   aplicacao/        casos de uso (bases, buscar, detalhar, importar) e as portas (repositório, fonte de cada base)
-  infraestrutura/   sqlite.py (FTS5 para a busca) · bases/sinapi.py (download e leitura do arquivo da Caixa)
+  infraestrutura/   sqlite.py (FTS5 para a busca) · bases/sinapi.py (Caixa) · bases/sicro.py (DNIT) · bases/_http.py
   interfaces/       http/ (FastAPI) · cli/importar.py (importar-base)
 ```
 

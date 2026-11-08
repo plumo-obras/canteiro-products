@@ -14,6 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from canteiro_products.dominio.erros import ErroDeProdutos
 from canteiro_products.interfaces.http.app import montar_catalogo
 from canteiro_products.interfaces.http.configuracao import Configuracao
 
@@ -25,7 +26,10 @@ def main() -> None:
     ap.add_argument("--arquivo", type=Path)
     a = ap.parse_args()
     catalogo = montar_catalogo(Configuracao.do_ambiente())
-    r = catalogo.importar(a.base, arquivo=a.arquivo.read_bytes() if a.arquivo else None, mes=a.mes)
+    try:
+        r = catalogo.importar(a.base, arquivo=a.arquivo.read_bytes() if a.arquivo else None, mes=a.mes)
+    except ErroDeProdutos as e:
+        sys.exit(f"{a.base}: {e}")
     print(f"{r['base']} {r['mes']}: {r['insumos']} insumos, {r['composicoes']} composições, {r['precos']} preços",
           file=sys.stderr)  # fmt: skip
 

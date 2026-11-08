@@ -91,21 +91,28 @@ class Catalogo:
     # ------------------------------------------------------------------ importação
 
     def importar(self, base: str, *, arquivo: bytes | None = None, mes: str | None = None) -> dict:
-        """Lê o arquivo do órgão (o dado ou o baixado agora) e grava a referência. Reimportar o mesmo mês substitui."""
+        """Lê o arquivo do órgão (o dado, ou os baixados agora: um ou um por UF) e grava. Reimportar substitui."""
         fonte = self.fontes.get(base)
         if fonte is None:
             raise PedidoInvalido(f"Base '{base}' não existe aqui. Bases: {', '.join(sorted(self.fontes))}.")
-        if arquivo is None:
-            _, arquivo = fonte.baixar(mes)
-        lote = fonte.ler(arquivo)
-        self.repo.gravar_lote(lote)
-        return {
-            "base": base,
-            "mes": lote.referencia.mes,
-            "insumos": sum(i.tipo is Tipo.INSUMO for i in lote.itens),
-            "composicoes": sum(i.tipo is Tipo.COMPOSICAO for i in lote.itens),
-            "precos": sum(len(v) for v in lote.precos.values()),
-        }
+        arquivos = [arquivo] if arquivo is not None else fonte.baixar(mes or fonte.ultimo_mes())
+        resumo = {"base": base, "mes": None, "ufs": [], "insumos": 0, "composicoes": 0, "precos": 0}
+        for arq in arquivos:
+            lote = fonte.ler(arq)
+            self.repo.gravar_lote(lote)
+            resumo["mes"] = lote.referencia.mes
+            resumo["ufs"] += list(lote.ufs or [])
+            resumo["insumos"] = max(resumo["insumos"], sum(i.tipo is Tipo.INSUMO for i in lote.itens))
+            resumo["composicoes"] = max(resumo["composicoes"], sum(i.tipo is Tipo.COMPOSICAO for i in lote.itens))
+            resumo["precos"] += sum(len(v) for v in lote.precos.values())
+        return resumo
+
+    def atualizar(self, base: str) -> dict | None:
+        """Importa o mês mais novo publicado se ele ainda não está aqui; None se já está em dia."""
+        mes = self.fontes[base].ultimo_mes()
+        if mes in {r.mes for r in self.repo.referencias(base)}:
+            return None
+        return self.importar(base, mes=mes)
 
     # ------------------------------------------------------------------ ajudas
 

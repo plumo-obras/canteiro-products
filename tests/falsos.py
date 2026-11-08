@@ -72,9 +72,61 @@ class FonteFalsa:
 
         self.base, self._leitor, self.arquivo, self.baixados = BASE, FonteSinapi(), arquivo or zip_da_caixa(), 0
 
+    def ultimo_mes(self):
+        return "2026-09"
+
     def baixar(self, mes):
         self.baixados += 1
-        return "2026-09", self.arquivo
+        yield self.arquivo
 
     def ler(self, arquivo):
         return self._leitor.ler(arquivo)
+
+
+def pacote_sicro(uf: str = "MG", mes: str = "01-2026", fator: float = 1.0) -> bytes:
+    """Um pacote .7z do SICRO como o DNIT publica (um por UF), só com os relatórios sintéticos em Excel."""
+    import py7zr
+
+    def planilha(cabecalho, linhas) -> bytes:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(cabecalho)
+        for linha in linhas:
+            ws.append(linha)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    equip = [
+        "Código",
+        "Descrição",
+        "Aquisição",
+        "Depr.",
+        "Oport.",
+        "Seg.",
+        "Manut.",
+        "Oper.",
+        "MO oper.",
+        "Custo Produtivo\n (R$/h)",
+        "Improdutivo",
+    ]  # noqa: E501
+    eq = [("E9007", "Bomba de pistão triplex - 8,20 kW", 167178.57, 16.72, 3.22, 0, 14.63, 8.41, 0, 43.0 * fator, 20.0)]
+    eq.append(eq[0])  # o DNIT publica alguns equipamentos em duas linhas iguais
+    rel = {
+        "Relatório Sintético de Materiais": planilha(["Código", "Descrição", "Unidade", "Preço"], [
+            ("M0004", "Aço CA 50", "kg", 6.0065 * fator), ("M0453", "Concreto usinado - fck = 30 MPa", "m³", None)]),
+        "Relatório Sintético de Mão de Obra": planilha(["Código", "Descrição", "Unidade", "Custo"], [
+            ("P9801", "Ajudante", "h", 24.1561 * fator), (None, None, None, None)]),
+        "Relatório Sintético de Mão de Obra - com desoneração": planilha(["Código", "Descrição", "Unidade", "Custo"], [
+            ("P9801", "Ajudante", "h", 22.813 * fator)]),
+        "Relatório Sintético de Equipamentos": planilha(equip, eq),
+        "Relatório Sintético de Equipamentos - com desoneração": planilha(equip, eq),
+        "Relatório Sintético de Composições de Custos": planilha(["Código", "Descrição", "Unidade", "Custo"], [
+            ("0307731", "Aparelho de apoio de neoprene fretado", "dm³", 153.28 * fator)]),
+    }  # fmt: skip
+    buf = io.BytesIO()
+    with py7zr.SevenZipFile(buf, "w") as z:
+        for nome, dados in rel.items():
+            z.writestr(dados, f"{uf} {mes} {nome}.xlsx")
+        z.writestr(b"%PDF-1.4", f"{uf} {mes} Relatório Sintético de Materiais.pdf")
+    return buf.getvalue()
