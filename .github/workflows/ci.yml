@@ -1,0 +1,38 @@
+# CI do catálogo de produtos e preços. As actions vão travadas pelo SHA (a tag pode ser movida por quem controla o
+# repositório dela), como nos outros repositórios do Plumo. Os testes usam uma planilha no formato do SINAPI montada no
+# próprio teste: nada é baixado do órgão no CI.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # --locked: se o pyproject mudou e o uv.lock não (um bump que só mexeu no pyproject), o CI quebra aqui, em vez de
+      # testar a versão velha que continua no lock
+      - run: uv sync --locked --extra dev -p 3.11
+      - name: lint e formatação
+        run: |
+          uv run --locked ruff check src tests ferramentas
+          uv run --locked ruff format --check src tests
+      - name: testes (domínio, leitor do SINAPI, casos de uso, API e a regra das camadas)
+        run: uv run --locked pytest -q
+
+  imagem:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build -t canteiro-products .

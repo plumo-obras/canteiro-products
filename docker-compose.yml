@@ -1,0 +1,12 @@
+services:
+  produtos:
+    build: .
+    image: canteiro-products:local
+    ports: ["8300:8000"]
+    environment:
+      PRODUTOS_API_KEYS: "${PRODUTOS_API_KEYS:-}"
+      PRODUTOS_ATUALIZAR: "${PRODUTOS_ATUALIZAR:-1}"
+    volumes: ["dados:/dados"]
+    restart: unless-stopped
+volumes:
+  dados:
