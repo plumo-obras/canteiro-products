@@ -64,6 +64,7 @@ def url(uf: str, mes: str) -> str:
 
 class FonteSicro:
     base = BASE
+    por_uf = True  # um arquivo por UF: a API carrega a UF quando alguém pede preço nela
 
     def __init__(self, ufs: tuple[str, ...] | None = None, timeout: float = 300, hoje: date | None = None):
         self.ufs = tuple(ufs or ESTADOS)
@@ -89,19 +90,21 @@ class FonteSicro:
                 a, m = a - 1, 12
         raise BaseIndisponivel("Nenhum SICRO publicado no portal do DNIT nos últimos 15 meses.")
 
+    def baixar_uf(self, mes: str, uf: str) -> bytes:
+        if uf not in ESTADOS:
+            raise BaseIndisponivel(f"UF desconhecida: {uf}")
+        try:
+            arquivo = _http.baixar(url(uf, mes), SETE_Z, self.timeout)
+        except _http.httpx.HTTPError as e:
+            raise BaseIndisponivel(f"SICRO {uf} {mes}: o portal do DNIT não entregou o arquivo ({e}).") from None
+        if arquivo is None:
+            raise BaseIndisponivel(f"SICRO {uf} {mes}: arquivo não publicado no portal do DNIT.")
+        return arquivo
+
     def baixar(self, mes: str) -> Iterator[bytes]:
-        faltaram = []
+        """As UFs configuradas (para importar de uma vez pela linha de comando); a API baixa UF a UF, quando pedem."""
         for uf in self.ufs:
-            try:
-                arquivo = _http.baixar(url(uf, mes), SETE_Z, self.timeout)
-            except _http.httpx.HTTPError:
-                arquivo = None
-            if arquivo is None:
-                faltaram.append(uf)
-                continue
-            yield arquivo
-        if faltaram:
-            raise BaseIndisponivel(f"SICRO {mes}: o DNIT não entregou {', '.join(faltaram)} (as outras UFs entraram).")
+            yield self.baixar_uf(mes, uf)
 
     # ------------------------------------------------------------------ leitura
 

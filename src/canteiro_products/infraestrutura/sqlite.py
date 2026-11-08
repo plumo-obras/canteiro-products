@@ -169,3 +169,8 @@ class RepositorioSqlite:
                 (base, mes, codigo),
             )
         ]
+
+    def ufs_carregadas(self, base, mes):
+        return {
+            uf for (uf,) in self._con().execute("SELECT DISTINCT uf FROM precos WHERE base=? AND mes=?", (base, mes))
+        }

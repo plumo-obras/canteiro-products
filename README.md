@@ -29,18 +29,22 @@ arquivo baixado no navegador:
 
 ```bash
 docker compose exec produtos importar-base sinapi --arquivo /caminho/SINAPI-2026-09-formato-xlsx.zip
-docker compose exec produtos importar-base sicro                      # o trimestre mais novo, das UFs configuradas
+docker compose exec produtos importar-base sicro --uf SP --uf MG      # o trimestre mais novo destas UFs
 docker compose exec produtos importar-base sicro --arquivo /caminho/mg-07-2026.7z
 ```
 
-O download retoma de onde parou quando o portal derruba a conexão no meio (acontece com os ~30 MB do SICRO).
+**SICRO sob demanda.** O DNIT publica um pacote de ~30 MB por UF a cada trimestre; em vez de baixar as 27, cada UF
+entra quando alguém pede preço nela. O detalhe de um item numa UF nova espera o pacote chegar (~5 a 20 s, uma vez); a
+busca responde na hora com o que tem e avisa em `carregando` (`["sicro/BA"]`) a UF que está chegando em segundo plano.
+Duas consultas ao mesmo tempo não baixam a mesma UF duas vezes. A cada trimestre novo, só as UFs já usadas se atualizam.
+O download retoma de onde parou quando o portal derruba a conexão no meio.
 
 | Variável | Padrão | |
 |---|---|---|
 | `PRODUTOS_API_KEYS` | vazio (sem autenticação) | chaves aceitas em `X-API-Key`, separadas por vírgula |
 | `PRODUTOS_DADOS` | `/dados` na imagem | onde fica o banco (SQLite, ~110 MB por mês do SINAPI) |
 | `PRODUTOS_ATUALIZAR` | 1 | busca o mês novo de cada base ao subir e uma vez por dia |
-| `PRODUTOS_SICRO_UFS` | as 27 | UFs do SICRO a baixar (cada uma ~30 MB por trimestre): `SP,MG,RJ` |
+| `PRODUTOS_SICRO_UFS` | nenhuma | UFs do SICRO para já carregar ao subir (`SP,MG`); as outras entram quando alguém pede |
 | `PRODUTOS_CORS` | `*` | origens liberadas |
 
 ## API
@@ -48,7 +52,7 @@ O download retoma de onde parou quando o portal derruba a conexão no meio (acon
 | | |
 |---|---|
 | `GET /v1/bases` | as bases (órgão, abrangência, fonte) e os meses importados |
-| `GET /v1/itens?q=concreto usinado c30&uf=SP` | busca em insumos e composições: termos soltos, sem acento, em qualquer ordem; `-termo` exclui a palavra; `tipo=insumo\|composicao`, `base=`, `mes=AAAA-MM` (padrão: o mais novo), `desonerado=true`, `limite=` |
+| `GET /v1/itens?q=concreto usinado c30&uf=SP` | busca (com `carregando`: as bases por UF que ainda estão chegando) em insumos e composições: termos soltos, sem acento, em qualquer ordem; `-termo` exclui a palavra; `tipo=insumo\|composicao`, `base=`, `mes=AAAA-MM` (padrão: o mais novo), `desonerado=true`, `limite=` |
 | `GET /v1/itens/{base}/{tipo}/{codigo}?uf=SP` | o item: preço na UF, preço em cada UF, histórico; na composição, os itens com coeficiente, preço e parcial |
 
 Dinheiro em centavos. O parcial da composição é coeficiente × preço **truncado** no centavo, como a planilha do SINAPI:

@@ -32,11 +32,11 @@ UM_DIA = 24 * 3600
 
 
 def montar_catalogo(cfg: Configuracao) -> Catalogo:
-    fontes = {"sinapi": FonteSinapi(), "sicro": FonteSicro(cfg.sicro_ufs or None)}
+    fontes = {"sinapi": FonteSinapi(), "sicro": FonteSicro()}
     return Catalogo(RepositorioSqlite(cfg.dados / "produtos.sqlite"), fontes)
 
 
-def _atualizar_sem_derrubar(catalogo: Catalogo) -> None:
+def _atualizar_sem_derrubar(catalogo: Catalogo, pre_carregar: tuple[str, ...] = ()) -> None:
     """Importa o mês mais novo de cada base que ainda não está aqui. Falhar (sem internet, órgão limitando) é só log."""
     for sigla in sorted(catalogo.fontes):
         try:
@@ -46,6 +46,12 @@ def _atualizar_sem_derrubar(catalogo: Catalogo) -> None:
                 print(f"{sigla}: {r['mes']} importado ({n})", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"{sigla}: não atualizado agora: {e}", flush=True)
+    for uf in pre_carregar:
+        try:
+            if catalogo.garantir_uf("sicro", uf):
+                print(f"sicro: {uf} carregado", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"sicro {uf}: não carregado agora: {e}", flush=True)
 
 
 def criar_app(cfg: Configuracao | None = None, catalogo: Catalogo | None = None) -> FastAPI:
@@ -56,7 +62,7 @@ def criar_app(cfg: Configuracao | None = None, catalogo: Catalogo | None = None)
     async def ciclo(_app: FastAPI) -> AsyncIterator[None]:
         async def todo_dia() -> None:
             while True:
-                await asyncio.to_thread(_atualizar_sem_derrubar, catalogo)
+                await asyncio.to_thread(_atualizar_sem_derrubar, catalogo, cfg.sicro_ufs)
                 await asyncio.sleep(UM_DIA)
 
         tarefa = asyncio.create_task(todo_dia()) if cfg.atualizar else None

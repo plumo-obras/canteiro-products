@@ -39,6 +39,10 @@ class Repositorio(Protocol):
 
     def analitico(self, base: str, codigo: str, mes: str) -> list[ItemDaComposicao]: ...
 
+    def ufs_carregadas(self, base: str, mes: str) -> set[str]:
+        """As UFs com algum preço da base no mês (base publicada por UF entra UF a UF, quando alguém pede)."""
+        ...
+
 
 class FonteDeBase(Protocol):
     """Uma base oficial: o mês mais novo publicado, os arquivos de um mês e como se lê cada um."""
@@ -54,3 +58,11 @@ class FonteDeBase(Protocol):
         ...
 
     def ler(self, arquivo: bytes) -> LoteDeReferencia: ...
+
+
+class FonteDeBasePorUf(FonteDeBase, Protocol):
+    """Base publicada em um arquivo por UF (o SICRO): cada UF entra quando alguém consulta preço nela."""
+
+    def baixar_uf(self, mes: str, uf: str) -> bytes:
+        """O arquivo da UF no mês. Levanta BaseIndisponivel."""
+        ...

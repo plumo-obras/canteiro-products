@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from decimal import Decimal
 
 from canteiro_products.dominio.busca import interpretar
@@ -11,6 +13,8 @@ from canteiro_products.dominio.modelos import UFS, Tipo
 from .portas import FonteDeBase, Repositorio
 
 LIMITE_MAXIMO = 200
+# o mês mais novo publicado é uma pergunta à rede: vale por algumas horas (o órgão publica uma vez por mês ou trimestre)
+CACHE_ULTIMO_MES_S = 6 * 3600
 
 
 def _parcial(preco_centavos: int | None, coeficiente: float) -> int | None:
@@ -24,6 +28,76 @@ def _parcial(preco_centavos: int | None, coeficiente: float) -> int | None:
 class Catalogo:
     def __init__(self, repositorio: Repositorio, fontes: dict[str, FonteDeBase]):
         self.repo, self.fontes = repositorio, fontes
+        self._travas: dict[tuple[str, str], threading.Lock] = {}
+        self._trava_das_travas = threading.Lock()
+        self._em_curso: set[tuple[str, str]] = set()
+        self._ultimo_mes: dict[str, tuple[float, str]] = {}
+
+    # ------------------------------------------------------------------ base por UF (SICRO): a UF entra quando pedem
+
+    def _por_uf(self, base: str) -> bool:
+        return bool(getattr(self.fontes.get(base), "por_uf", False))
+
+    def _mes_publicado(self, base: str) -> str:
+        agora = time.monotonic()
+        guardado = self._ultimo_mes.get(base)
+        if guardado and agora - guardado[0] < CACHE_ULTIMO_MES_S:
+            return guardado[1]
+        mes = self.fontes[base].ultimo_mes()
+        self._ultimo_mes[base] = (agora, mes)
+        return mes
+
+    def _mes_para_uf(self, base: str) -> str:
+        meses = sorted({r.mes for r in self.repo.referencias(base)})
+        return meses[-1] if meses else self._mes_publicado(base)
+
+    def garantir_uf(self, base: str, uf: str, mes: str | None = None) -> bool:
+        """Deixa a UF da base carregada no mês (o mais novo, se não disser); False se ela já estava. Duas consultas ao
+        mesmo tempo não baixam a mesma UF duas vezes: a segunda espera a primeira."""
+        if not self._por_uf(base):
+            return False
+        mes = mes or self._mes_para_uf(base)
+        if uf in self.repo.ufs_carregadas(base, mes):
+            return False
+        with self._trava_das_travas:
+            trava = self._travas.setdefault((base, uf), threading.Lock())
+        with trava:
+            if uf in self.repo.ufs_carregadas(base, mes):
+                return False
+            fonte = self.fontes[base]
+            self.repo.gravar_lote(fonte.ler(fonte.baixar_uf(mes, uf)))  # type: ignore[attr-defined]
+            return True
+
+    def _carregar_em_segundo_plano(self, base: str, uf: str) -> None:
+        chave = (base, uf)
+        with self._trava_das_travas:
+            if chave in self._em_curso:
+                return
+            self._em_curso.add(chave)
+
+        def trabalhar() -> None:
+            try:
+                self.garantir_uf(base, uf)
+            except Exception as e:  # noqa: BLE001 — a busca já respondeu; a próxima tenta de novo
+                print(f"{base} {uf}: não carregado agora: {e}", flush=True)
+            finally:
+                with self._trava_das_travas:
+                    self._em_curso.discard(chave)
+
+        threading.Thread(target=trabalhar, daemon=True).start()
+
+    def _faltando(self, base: str | None, uf: str, mes: str | None) -> list[str]:
+        """As bases por UF que ainda não têm a UF (e começa a buscá-las): a busca avisa que estão carregando."""
+        faltam = []
+        for sigla in sorted(self.fontes):
+            if (base and sigla != base) or not self._por_uf(sigla):
+                continue
+            meses = sorted({r.mes for r in self.repo.referencias(sigla)})
+            alvo = mes or (meses[-1] if meses else None)
+            if alvo is None or uf not in self.repo.ufs_carregadas(sigla, alvo):
+                self._carregar_em_segundo_plano(sigla, uf)
+                faltam.append(f"{sigla}/{uf}")
+        return faltam
 
     # ------------------------------------------------------------------ consulta
 
@@ -45,9 +119,11 @@ class Catalogo:
         t = self._tipo(tipo)
         if base and base not in self.fontes:
             raise PedidoInvalido(f"Base '{base}' não existe aqui. Bases: {', '.join(sorted(self.fontes))}.")
+        carregando = self._faltando(base, uf, mes)
         achados = self.repo.buscar(consulta, tipo=t, base=base, mes=mes, uf=uf, desonerado=desonerado,
                                    limite=max(1, min(limite, LIMITE_MAXIMO)))  # fmt: skip
         return {
+            "carregando": carregando,
             "consulta": {"contem": list(consulta.contem), "nao_contem": list(consulta.nao_contem)},
             "uf": uf,
             "desonerado": desonerado,
@@ -59,6 +135,10 @@ class Catalogo:
         uf, t = self._uf(uf), self._tipo(tipo)
         if t is None:
             raise PedidoInvalido("Tipo é insumo ou composicao.")
+        if base not in self.fontes:
+            raise PedidoInvalido(f"Base '{base}' não existe aqui. Bases: {', '.join(sorted(self.fontes))}.")
+        if self._por_uf(base):
+            self.garantir_uf(base, uf, mes)  # quem pede o item numa UF que ainda não está aqui espera ela chegar
         mes = mes or self._mes_mais_novo(base)
         item = self.repo.obter(base, t, codigo, mes)
         if item is None:
@@ -108,11 +188,20 @@ class Catalogo:
         return resumo
 
     def atualizar(self, base: str) -> dict | None:
-        """Importa o mês mais novo publicado se ele ainda não está aqui; None se já está em dia."""
-        mes = self.fontes[base].ultimo_mes()
-        if mes in {r.mes for r in self.repo.referencias(base)}:
+        """Importa o mês mais novo publicado se ele ainda não está aqui; None se já está em dia. Base por UF: atualiza
+        só as UFs que alguém já usou (as outras entram quando forem pedidas)."""
+        mes = self._mes_publicado(base)
+        meses = sorted({r.mes for r in self.repo.referencias(base)})
+        if mes in meses:
             return None
-        return self.importar(base, mes=mes)
+        if not self._por_uf(base):
+            return self.importar(base, mes=mes)
+        usadas = sorted(self.repo.ufs_carregadas(base, meses[-1])) if meses else []
+        for uf in usadas:
+            self.garantir_uf(base, uf, mes)
+        return (
+            {"base": base, "mes": mes, "ufs": usadas, "insumos": 0, "composicoes": 0, "precos": 0} if usadas else None
+        )
 
     # ------------------------------------------------------------------ ajudas
 

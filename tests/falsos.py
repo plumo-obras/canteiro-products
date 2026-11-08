@@ -130,3 +130,34 @@ def pacote_sicro(uf: str = "MG", mes: str = "01-2026", fator: float = 1.0) -> by
             z.writestr(dados, f"{uf} {mes} {nome}.xlsx")
         z.writestr(b"%PDF-1.4", f"{uf} {mes} Relatório Sintético de Materiais.pdf")
     return buf.getvalue()
+
+
+class FonteSicroFalsa:
+    """O SICRO sem rede: cada UF devolve o pacote do teste (devagar, para duas consultas baterem ao mesmo tempo)."""
+
+    def __init__(self, mes: str = "2026-07", espera: float = 0.0):
+        import threading
+
+        from canteiro_products.infraestrutura.bases.sicro import BASE, FonteSicro
+
+        self.base, self.por_uf, self._leitor, self.mes, self.espera = BASE, True, FonteSicro(), mes, espera
+        self.baixadas: list[str] = []
+        self._trava = threading.Lock()
+
+    def ultimo_mes(self):
+        return self.mes
+
+    def baixar_uf(self, mes, uf):
+        import time
+
+        with self._trava:
+            self.baixadas.append(uf)
+        time.sleep(self.espera)
+        a, m = mes.split("-")
+        return pacote_sicro(uf, f"{m}-{a}", fator=1.1 if uf == "SP" else 1.0)
+
+    def baixar(self, mes):
+        yield self.baixar_uf(mes, "MG")
+
+    def ler(self, arquivo):
+        return self._leitor.ler(arquivo)
